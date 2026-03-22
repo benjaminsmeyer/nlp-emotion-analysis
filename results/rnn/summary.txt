@@ -1,0 +1,11 @@
+Model: rnn
+
+Best Hyperparameters:
+  type : Bi-LSTM
+  hidden_dim : 128
+
+Test Metrics:
+  accuracy  : 0.9185
+  precision : 0.8907
+  recall    : 0.8651
+  f1        : 0.8766
