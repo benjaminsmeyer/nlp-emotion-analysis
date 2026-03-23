@@ -1,0 +1,11 @@
+Model: logistic_regression
+
+Best Hyperparameters:
+  c : 10.0
+  max_features : 20000
+
+Test Metrics:
+  accuracy  : 0.8825
+  precision : 0.8544
+  recall    : 0.8151
+  f1        : 0.8328
