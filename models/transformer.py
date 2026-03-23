@@ -10,6 +10,38 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 
 
+class TransformerBlock(nn.Module):
+    def __init__(self, embedding_dim, dropout=0.1):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(embedding_dim)
+        self.norm2 = nn.LayerNorm(embedding_dim)
+        self.W_q = nn.Linear(embedding_dim, embedding_dim)
+        self.W_k = nn.Linear(embedding_dim, embedding_dim)
+        self.W_v = nn.Linear(embedding_dim, embedding_dim)
+        self.scale = math.sqrt(embedding_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.ffn = nn.Sequential(
+            nn.Linear(embedding_dim, 2 * embedding_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(2 * embedding_dim, embedding_dim),
+        )
+
+    def forward(self, x, pad_mask):
+        normed = self.norm1(x)
+        Q = self.W_q(normed)
+        K = self.W_k(normed)
+        V = self.W_v(normed)
+
+        scores = (Q @ K.transpose(1, 2)) / self.scale
+        scores = scores.masked_fill(pad_mask, float("-inf"))
+        attention = self.dropout(torch.softmax(scores, dim=2))
+        x = x + attention @ V
+
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+
 class Transformer(nn.Module):
     def __init__(
         self,
@@ -18,6 +50,7 @@ class Transformer(nn.Module):
         embedding_dim: int,
         num_classes: int,
         padding_idx: int = 0,
+        num_layers: int = 4,
     ):
         super().__init__()
 
@@ -26,44 +59,23 @@ class Transformer(nn.Module):
             vocab_size, embedding_dim, padding_idx=padding_idx
         )
         self.pos_embedding = nn.Embedding(max_seq_len, embedding_dim)
-        self.W_q = nn.Linear(embedding_dim, embedding_dim)
-        self.W_k = nn.Linear(embedding_dim, embedding_dim)
-        self.W_v = nn.Linear(embedding_dim, embedding_dim)
-        self.scale = math.sqrt(embedding_dim)
-        self.dropout = nn.Dropout(0.1)
-        self.ffn = nn.Sequential(
-            nn.Linear(embedding_dim, 2 * embedding_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(2 * embedding_dim, embedding_dim),
+        self.layers = nn.ModuleList(
+            [TransformerBlock(embedding_dim) for _ in range(num_layers)]
         )
+        self.norm = nn.LayerNorm(embedding_dim)
         self.classifier = nn.Linear(embedding_dim, num_classes)
 
     def forward(self, x):
         positions = torch.arange(x.shape[1], device=x.device).unsqueeze(0)
-
-        # (sentence, token, embedding)
         e = self.embedding(x) + self.pos_embedding(positions)
 
-        # (sentence, token, embedding)
-        Q = self.W_q(e)
-        K = self.W_k(e)
-        V = self.W_v(e)
-
-        # (sentence, token, token)
-        scores = (Q @ K.transpose(1, 2)) / self.scale
         pad_mask = (x == self.padding_idx).unsqueeze(1)
-        scores = scores.masked_fill(pad_mask, float("-inf"))
-        attention = torch.softmax(scores, dim=2)
-        attention = self.dropout(attention)
-
-        # (sentence, token, embedding)
-        attended = attention @ V
-        attended = attended + e
-        attended = attended + self.ffn(attended)
+        for layer in self.layers:
+            e = layer(e, pad_mask)
+        e = self.norm(e)
 
         token_mask = (x != self.padding_idx).unsqueeze(-1).float()
-        pooled = (attended * token_mask).sum(dim=1) / token_mask.sum(dim=1).clamp(min=1)
+        pooled = (e * token_mask).sum(dim=1) / token_mask.sum(dim=1).clamp(min=1)
         return self.classifier(pooled)
 
 
