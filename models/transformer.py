@@ -11,14 +11,17 @@ from transformers import AutoTokenizer
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, embedding_dim, dropout=0.1):
+    def __init__(self, embedding_dim, num_heads=4, dropout=0.1):
         super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = embedding_dim // num_heads
         self.norm1 = nn.LayerNorm(embedding_dim)
         self.norm2 = nn.LayerNorm(embedding_dim)
         self.W_q = nn.Linear(embedding_dim, embedding_dim)
         self.W_k = nn.Linear(embedding_dim, embedding_dim)
         self.W_v = nn.Linear(embedding_dim, embedding_dim)
-        self.scale = math.sqrt(embedding_dim)
+        self.W_o = nn.Linear(embedding_dim, embedding_dim)
+        self.scale = math.sqrt(self.head_dim)
         self.dropout = nn.Dropout(dropout)
         self.ffn = nn.Sequential(
             nn.Linear(embedding_dim, 2 * embedding_dim),
@@ -28,15 +31,33 @@ class TransformerBlock(nn.Module):
         )
 
     def forward(self, x, pad_mask):
+        batch, tokens, _ = x.shape
         normed = self.norm1(x)
-        Q = self.W_q(normed)
-        K = self.W_k(normed)
-        V = self.W_v(normed)
 
-        scores = (Q @ K.transpose(1, 2)) / self.scale
-        scores = scores.masked_fill(pad_mask, float("-inf"))
-        attention = self.dropout(torch.softmax(scores, dim=2))
-        x = x + attention @ V
+        Q = (
+            self.W_q(normed)
+            .view(batch, tokens, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        K = (
+            self.W_k(normed)
+            .view(batch, tokens, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        V = (
+            self.W_v(normed)
+            .view(batch, tokens, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+
+        # (batch, num_heads, tokens, tokens)
+        scores = (Q @ K.transpose(-2, -1)) / self.scale
+        scores = scores.masked_fill(pad_mask.unsqueeze(1), float("-inf"))
+        attention = self.dropout(torch.softmax(scores, dim=-1))
+
+        # (batch, num_heads, tokens, head_dim) -> (batch, tokens, embedding_dim)
+        attended = (attention @ V).transpose(1, 2).contiguous().view(batch, tokens, -1)
+        x = x + self.W_o(attended)
 
         x = x + self.ffn(self.norm2(x))
         return x
@@ -82,7 +103,9 @@ class Transformer(nn.Module):
 class TransformerModel(BaseEmotionModel):
     def __init__(self, model_name="distilbert-base-uncased"):
         super().__init__()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name, local_files_only=True
+        )
         self.model = None
         self.history = {
             "epoch": [],
@@ -91,7 +114,7 @@ class TransformerModel(BaseEmotionModel):
             "val_accuracy": [],
         }
 
-    def train(self, train_data, val_data, epochs=20, batch_size=64) -> None:
+    def train(self, train_data, val_data, epochs=16, batch_size=64) -> None:
         self.model = Transformer(
             vocab_size=self.tokenizer.vocab_size,
             max_seq_len=512,

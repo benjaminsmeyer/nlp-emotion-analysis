@@ -5,7 +5,7 @@ Best Hyperparameters:
   epochs : 20
 
 Test Metrics:
-  accuracy  : 0.8575
-  precision : 0.8002
-  recall    : 0.8373
-  f1        : 0.8163
+  accuracy  : 0.8740
+  precision : 0.8508
+  recall    : 0.8174
+  f1        : 0.8305
