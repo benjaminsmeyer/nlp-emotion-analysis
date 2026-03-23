@@ -1,0 +1,11 @@
+Model: naive_bayes
+
+Best Hyperparameters:
+  alpha : 0.1
+  max_features : 5000
+
+Test Metrics:
+  accuracy  : 0.7780
+  precision : 0.8464
+  recall    : 0.5994
+  f1        : 0.6465
