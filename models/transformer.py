@@ -198,6 +198,17 @@ class TransformerModel(BaseEmotionModel):
             "transformer",
         )
 
+        print("\nMisclassified examples (5 per true class):")
+        misclassified = {label_id: [] for label_id in LABEL_NAMES}
+        for text, true, pred in zip(test_data["text"], y_true, y_pred):
+            if true != pred and len(misclassified[true]) < 5:
+                misclassified[true].append((text, pred))
+
+        for label_id, name in LABEL_NAMES.items():
+            print(f"\n  True: {name}")
+            for text, pred in misclassified[label_id]:
+                print(f"    Predicted: {LABEL_NAMES[pred]:>10} | {text}")
+
         return metrics
 
     def evaluate_validation(self, data, batch_size=128):
