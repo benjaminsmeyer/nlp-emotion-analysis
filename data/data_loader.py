@@ -1,7 +1,8 @@
+import os
 import re
 from collections import Counter
 import torch
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 
 LABEL_NAMES = {
     0: "sadness",
@@ -25,17 +26,25 @@ def preprocess_text(text: str) -> str:
     return text
 
 
-def load_emotion_data():
+def load_emotion_data(cache_dir="data/cached"):
     """Load dair-ai/emotion dataset and print split/class statistics.
 
     Returns:
         (train_dataset, val_dataset, test_dataset) as HuggingFace Dataset objects
     """
-    dataset = load_dataset("dair-ai/emotion")
-
-    train_dataset = dataset["train"]
-    val_dataset = dataset["validation"]
-    test_dataset = dataset["test"]
+    if os.path.exists(cache_dir):
+        train_dataset = load_from_disk(os.path.join(cache_dir, "train"))
+        val_dataset = load_from_disk(os.path.join(cache_dir, "validation"))
+        test_dataset = load_from_disk(os.path.join(cache_dir, "test"))
+    else:
+        dataset = load_dataset("dair-ai/emotion")
+        train_dataset = dataset["train"]
+        val_dataset = dataset["validation"]
+        test_dataset = dataset["test"]
+        os.makedirs(cache_dir, exist_ok=True)
+        train_dataset.save_to_disk(os.path.join(cache_dir, "train"))
+        val_dataset.save_to_disk(os.path.join(cache_dir, "validation"))
+        test_dataset.save_to_disk(os.path.join(cache_dir, "test"))
 
     print(f"Dataset splits — train: {len(train_dataset)}, val: {len(val_dataset)}, test: {len(test_dataset)}")
 
