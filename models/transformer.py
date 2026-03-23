@@ -55,8 +55,11 @@ class TransformerBlock(nn.Module):
         scores = scores.masked_fill(pad_mask.unsqueeze(1), float("-inf"))
         attention = self.dropout(torch.softmax(scores, dim=-1))
 
-        # (batch, num_heads, tokens, head_dim) -> (batch, tokens, embedding_dim)
-        attended = (attention @ V).transpose(1, 2).contiguous().view(batch, tokens, -1)
+        # (batch, num_heads, tokens, head_dim)
+        attended = attention @ V
+
+        # (batch, tokens, embedding_dim)
+        attended = attended.transpose(1, 2).contiguous().view(batch, tokens, -1)
         x = x + self.W_o(attended)
 
         x = x + self.ffn(self.norm2(x))
@@ -103,6 +106,7 @@ class Transformer(nn.Module):
 class TransformerModel(BaseEmotionModel):
     def __init__(self, model_name="distilbert-base-uncased"):
         super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, local_files_only=True
         )
@@ -121,7 +125,7 @@ class TransformerModel(BaseEmotionModel):
             embedding_dim=128,
             num_classes=len(LABEL_NAMES),
             padding_idx=self.tokenizer.pad_token_id,
-        )
+        ).to(self.device)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
 
@@ -131,8 +135,8 @@ class TransformerModel(BaseEmotionModel):
 
             train_loader = list(get_dataloader(train_data, batch_size, self.tokenizer))
             for batch in train_loader:
-                input_ids = batch["input_ids"]
-                labels = batch["labels"]
+                input_ids = batch["input_ids"].to(self.device)
+                labels = batch["labels"].to(self.device)
 
                 logits = self.model(input_ids)
                 loss = F.cross_entropy(logits, labels)
@@ -170,7 +174,7 @@ class TransformerModel(BaseEmotionModel):
                 inputs = self.tokenizer(
                     batch_texts, padding=True, truncation=True, return_tensors="pt"
                 )
-                logits = self.model(inputs["input_ids"])
+                logits = self.model(inputs["input_ids"].to(self.device))
                 preds = logits.argmax(dim=1).tolist()
                 predictions.extend(preds)
 
@@ -210,8 +214,8 @@ class TransformerModel(BaseEmotionModel):
         val_loader = list(get_dataloader(data, batch_size, self.tokenizer))
         with torch.no_grad():
             for batch in val_loader:
-                input_ids = batch["input_ids"]
-                labels = batch["labels"]
+                input_ids = batch["input_ids"].to(self.device)
+                labels = batch["labels"].to(self.device)
 
                 logits = self.model(input_ids)
                 loss = F.cross_entropy(logits, labels)
