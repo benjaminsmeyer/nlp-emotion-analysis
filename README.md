@@ -35,6 +35,7 @@ Splits: 16,000 train / 2,000 validation / 2,000 test.
 ## Setup
 
 ```bash
+git clone https://github.com/benjaminsmeyer/nlp-emotion-analysis.git
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
